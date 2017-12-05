@@ -100,7 +100,7 @@ class BayesianAgent(CaptureAgent):
 		  for newPos, prob in newPosDist.iterms():
 			  allPossible[newPos] += self.beliefs[oldPos] * prob
 	  allPossible.normalize()
-	  self.
+	  self.beliefs[opponent] = allPossible
 		  
 				   
 		  
