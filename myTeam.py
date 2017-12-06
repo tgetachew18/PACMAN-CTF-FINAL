@@ -23,7 +23,7 @@ from itertools import product
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'DummyAgent', second = 'DummyAgent'):
+               first = 'BayesianAgent', second = 'DummyAgent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -48,7 +48,8 @@ def createTeam(firstIndex, secondIndex, isRed,
 
 class BayesianAgent(CaptureAgent):
   """
-  A bayesian belief distribution for where the opponents are 
+  A Bayesian belief distribution for where the opponents are 
+  with majority functionality taken from previous project. 
   """
 
   def registerInitialState(self, gameState):
@@ -73,46 +74,74 @@ class BayesianAgent(CaptureAgent):
     CaptureAgent.registerInitialState(self, gameState) #?
     '''
     Your initialization code goes here, if you need any.    '''
-    
+    self.beliefs = {} #distribution of each opponent
     self.opponents = self.getOpponents(gameState)
-    self.beliefs = {} #Same as before except two instead of one
     for opponent in self.opponents:
-		self.beliefs[opponent] = utilCounter()
-		opp_pos = gameState.getInitialAgentPosition(opponent) #We know where they are at first
-		self.beliefs[opponent] = opp_pos
+        self.beliefs[opponent] = util.Counter()
+        opp_pos = gameState.getInitialAgentPosition(opponent)
+        self.beliefs[opponent][opp_pos] = 1.0
+        
+    # The legal positions do not include the ghost prison cells in the bottom left.
+    self.legalPositions = [p for p in gameState.getWalls().asList(False) if p[1] > 1]
+
 
   def initializeUniformly(self, opponent):
-	  """Begin with a uniform distribution over the foe's position"""
-	  for p in self.legalPosition:self.beliefs[opponent][p] = 1.0
-	  self.beliefs[opponent].normalize()
+      """Initialize opponent's corresponding prob distribution"""
+      for pos in self.legalPositions:self.beliefs[opponent][pos] = 1.0
+      self.beliefs[opponent].normalize()
+           
+  def observe(self, gameState, opponent, observation):
+      noisyDistance = observation[opponent]
+      opp_distribution = util.Counter()
+      position = gameState.getAgentPosition(self.index)
+      for p in self.legalPositions:
+          trueDistance = util.manhattanDistance(position, p)
+          if trueDistance <= 5: #We don't need it in this case
+              opp_distribution[p] = 0.0
+          else:
+              opp_distribution[p] = self.beliefs[opponent][p] * gameState.getDistanceProb(trueDistance, noisyDistance)
+      opp_distribution.normalize()
+      self.beliefs[opponent] = opp_distribution
+        
   
   def elapseTime(self, gameState, opponent):
-	  allPossible = util.Counter()
-	  
-	  for oldPos in self.legalPositions:
-		  newPosDist = util.Counter()
-		  vecs = [(0,0)] + [(i,j) for i,j in product([-1,0,1], repeat=2) if (i+j)%2!=0]
-		  for a, b in vecs:
-			  new_pos = oldPos[0] + a, oldPos[1] + b
-			  if new_pos in self.legalPositions:
-				  newPosDist[new_pos] = 1.0
-		  newPosDist.normalize()
-		  for newPos, prob in newPosDist.iterms():
-			  allPossible[newPos] += self.beliefs[oldPos] * prob
-	  allPossible.normalize()
-	  self.beliefs[opponent] = allPossible
-		  
-				   
-		  
-	  
-		
+      allPossible = util.Counter()      
+      for oldPos in self.legalPositions:
+          newPosDist = util.Counter()
+          vecs = [(0, 0), (-1, 0), (0, -1), (0, 1), (1, 0)] #Vecs for possible moves
+          for a, b in vecs:
+              new_pos = oldPos[0] + a, oldPos[1] + b
+              if new_pos in self.legalPositions:
+                  newPosDist[new_pos] = 1.0
+                  
+          newPosDist.normalize()         
+          for newPos, prob in newPosDist.items():
+              allPossible[newPos] += self.beliefs[opponent][oldPos] * prob
+              
+      if allPossible.totalCount() == 0:
+          self.initializeUniformly(opponent)
+      else:
+          allPossible.normalize()
+          self.beliefs[opponent] = allPossible          
+      
+        
 
   def chooseAction(self, gameState):
     """
     Picks among actions randomly.
     """
     actions = gameState.getLegalActions(self.index)
-
+    noisyDistances = gameState.getAgentDistances()
+    for opponent in self.opponents:
+            opp_pos = gameState.getAgentPosition(opponent)                
+            if opp_pos is None:
+                self.elapseTime(gameState, opponent)
+                self.observe(gameState, opponent, noisyDistances )
+            else:
+                inf_belief = util.Counter()
+                inf_belief[opp_pos] = 1.0
+                self.beliefs[opponent] = inf_belief
+    self.displayDistributionsOverPositions(self.beliefs.values())
     '''
     You should change this in your own agent.
     '''
