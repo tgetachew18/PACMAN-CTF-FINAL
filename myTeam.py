@@ -23,7 +23,7 @@ from itertools import product
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'BayesianAgent', second = 'DummyAgent'):
+               first = 'BayesianAgent', second = 'BayesianAgent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -76,6 +76,9 @@ class BayesianAgent(CaptureAgent):
     Your initialization code goes here, if you need any.    '''
     self.beliefs = {} #distribution of each opponent
     self.opponents = self.getOpponents(gameState)
+    self.NEGINF = float("-inf")
+    self.INF = float("inf")
+    self.depth = 2 
     for opponent in self.opponents:
         self.beliefs[opponent] = util.Counter()
         opp_pos = gameState.getInitialAgentPosition(opponent)
@@ -83,6 +86,12 @@ class BayesianAgent(CaptureAgent):
         
     # The legal positions do not include the ghost prison cells in the bottom left.
     self.legalPositions = [p for p in gameState.getWalls().asList(False) if p[1] > 1]
+    
+    
+  def isTerminalState(self, gamestate, d):
+      if d == 0 or  gamestate.isOver():
+          return True
+      return False
 
 
   def initializeUniformly(self, opponent):
@@ -122,9 +131,67 @@ class BayesianAgent(CaptureAgent):
           self.initializeUniformly(opponent)
       else:
           allPossible.normalize()
-          self.beliefs[opponent] = allPossible          
-      
-        
+          self.beliefs[opponent] = allPossible
+
+  
+  
+  def isPacman(self, gameState, agent, agentpos):
+      return gameState.isRed(agentpos) ^ gameState.isOnRedTeam(agent)
+  
+  def getProbableStates(self, gamestate, opponent):
+      """Populates the 5 most probable states  for an opponent"""
+      sortedKeys = self.beliefs[opponent].sortedKeys()
+      curr = 0
+      while curr <= 5:
+          pos = sortedKeys[curr]
+          if self.beliefs[opponent][pos] == 0:
+              break
+          # make new staste at this positon for the enemy 
+          currState = gamestate.deepCopy()
+          newoppstate = game.AgentState(game.Configuration(pos, 'Stop'), self.isPacman(currState, opponent, pos))
+          currState.data.agentStates[opponent] = newoppstate
+          yield currState
+          curr += 1
+
+
+
+
+  def Min_Value(self, gamestate, opponent, d):
+    """Just model it as a bayes opponent"""
+    if self.isTerminalState(gamestate, d):
+      return self.evaluationFunction(gamestate)
+    v = 0
+    num_actions = 0.0
+    for state in self.getProbableStates(gamestate, opponent):
+        actions = []
+        try:
+            actions = state.getLegalActions(opponent)
+        except:
+            pass
+        for action in actions:
+            state_prime = state.generateSuccessor(opponent, action)
+            if opponent == max(self.opponents): #I am the last opponent
+                v += self.Max_Value(state_prime, d - 1)
+            else:
+                v += self.Min_Value(state_prime, opponent + 2, d - 1)
+            num_actions += 1
+    if num_actions == 0:
+        return 0
+    else:
+        return v/num_actions
+
+  
+
+
+  def Max_Value(self, state, d):
+      """This is this agent"""
+      if self.isTerminalState(state, d):
+          return self.evaluationFunction(state)
+      v = self.NEGINF
+      for action in state.getLegalActions(self.index):
+          state_prime = state.generateSuccessor(self.index, action)
+          v = max(v, self.Min_Value(state_prime, self.opponents[0], d))
+      return v
 
   def chooseAction(self, gameState):
     """
@@ -142,14 +209,24 @@ class BayesianAgent(CaptureAgent):
                 inf_belief[opp_pos] = 1.0
                 self.beliefs[opponent] = inf_belief
     self.displayDistributionsOverPositions(self.beliefs.values())
+    
     '''
     You should change this in your own agent.
     '''
-
+    best_move = None
+    v = self.NEGINF
+    for move in gameState.getLegalActions(self.index):
+        state_prime = gameState.generateSuccessor(self.index, move)
+        value = self.Min_Value(state_prime, self.opponents[0], self.depth)
+        if value > v:
+            v = value
+            best_move = move
+    return best_move
     return random.choice(actions)
 
-
-
+  def evaluationFunction(self, gameState):
+      return self.getScore(gameState)
+  
 class DummyAgent(CaptureAgent):
   """
   A Dummy agent to serve as an example of the necessary agent structure.
